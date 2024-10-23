@@ -1,3 +1,15 @@
+// for me to remember:
+    // errors are there because postgres db isn't running
+    // to run this: use homebrew to start up postgres again
+    // then, connect to "postgres" database using psql postgres
+    // then, \l and \dt to list databases then the tables
+    // then, use cargo run to run the program
+    // then, use postman to test API calls 
+    // CELEBRATE!!
+
+
+
+
 #![allow(unused)]
 
 use axum::{
