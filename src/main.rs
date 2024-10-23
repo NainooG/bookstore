@@ -44,7 +44,11 @@ async fn main() {
 
     // 5. compose the routes
 
-    let app = Router::new().route("/", get( || async { "Hello World " }));
+    let app = Router::new()
+        .route("/", get( || async { "SENDING IT!!!" }))
+        .route("/tasks", get(get_tasks).post(create_task))
+        .route("/tasks/:task_id", patch(update_task).delete(delete_task))
+        .with_state(db_pool);
 
     // 6. serve the application
 
@@ -53,3 +57,116 @@ async fn main() {
         .expect("Error serving application");
 
 }
+
+#[derive(Serialize)]
+struct TaskRow {
+    task_id: i32,
+    name: String,
+    priority: Option<i32>,
+}
+
+async fn get_tasks(
+    State(pg_pool): State<PgPool>
+) -> Result<(StatusCode, String), (StatusCode, String)> { 
+    let rows = sqlx::query_as!(TaskRow, "SELECT * FROM tasks ORDER BY task_id")
+        .fetch_all(&pg_pool)
+        .await
+        .map_err(|e| { (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "success": false, "message": e.to_string()}).to_string(),
+        )})?;
+
+        Ok((
+            StatusCode::OK,
+            json!({ "success": true, "data": rows }).to_string()
+        ))
+}
+
+#[derive(Deserialize)]
+struct CreateTaskRequest {
+    name: String,
+    priority: Option<i32>,
+}
+
+#[derive(Serialize)]
+struct CreateTaskRow {
+    task_id: i32,
+}
+
+// task is last parameter, any extractor 
+// that consumes the body should be the last parameter in an axum handler. read docs.
+async fn create_task(
+    State(pg_pool): State<PgPool>,
+    Json(task): Json<CreateTaskRequest>,
+) -> Result<(StatusCode, String), (StatusCode, String)> {
+    let row = sqlx::query_as!(
+        CreateTaskRow, "INSERT INTO tasks (name, priority) VALUES ($1, $2) RETURNING task_id",
+        task.name,
+        task.priority
+    ).fetch_one(&pg_pool)
+    .await
+    .map_err(|e| { (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({ "success": false, "message": e.to_string()}).to_string(),
+    )})?;
+
+    Ok((StatusCode::CREATED, 
+        json!({ "success": true, "data": row}).to_string(),
+    ))
+}
+
+#[derive(Deserialize)]
+struct UpdateTaskRequest {
+    name: Option<String>,
+    priority: Option<i32>,
+}
+
+#[axum::debug_handler]
+async fn update_task(
+    State(pg_pool): State<PgPool>,
+    Path(task_id): Path<i32>,
+    Json(task): Json<UpdateTaskRequest>,
+) -> Result<(StatusCode, String), (StatusCode, String)> {
+    sqlx::query! (
+        "
+        UPDATE tasks SET
+            name = $2,
+            priority = $3
+        WHERE task_id = $1
+        ",
+    task_id, 
+    task.name, 
+    task.priority
+    ).execute(&pg_pool)
+    .await
+    .map_err(|e| { (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({ "success": false, "message": e.to_string()}).to_string(),
+    )})?;
+
+    Ok((StatusCode::CREATED, 
+        json!({ "success": true}).to_string(),
+    ))
+}
+
+
+async fn delete_task(
+    State(pg_pool): State<PgPool>,
+    Path(task_id): Path<i32>,
+) -> Result<(StatusCode, String), (StatusCode, String)> {
+    sqlx::query!(
+        "
+        DELETE FROM tasks WHERE task_id = $1",
+        task_id
+    ).execute(&pg_pool)
+    .await
+    .map_err(|e| { (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        json!({ "success": false, "message": e.to_string()}).to_string(),
+    )})?;
+
+    Ok((StatusCode::CREATED, 
+        json!({ "success": true}).to_string(),
+    ))
+}
+
